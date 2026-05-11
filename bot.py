@@ -36,10 +36,10 @@ def save_data(data):
 
 async def start(update, context):
     await update.message.reply_text(
-        "📸 *Фотограф «В моменте»*\nКрасноярск / Новосибирск\n\n"
+        "📸 Фотограф «В моменте»\nКрасноярск / Новосибирск\n\n"
         "Напиши /slots_free, чтобы посмотреть свободные слоты.\n\n"
-        "*Команды админа:*\n/add_slot 2025-05-20 17:00\n/day_off 2025-05-20\n/slots",
-        parse_mode="Markdown"
+        "Команды админа:\n/add_slot 2025-05-20 17:00\n/day_off 2025-05-20\n/slots",
+        parse_mode=None # Отключаем Markdown, чтобы избежать ошибок форматирования
     )
 
 async def show_free_slots(update, context):
