@@ -309,3 +309,41 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ... (весь ваш предыдущий код)
+
+import asyncio
+from aiohttp import web
+
+async def handle_health_check(request):
+    return web.Response(text="OK")
+
+async def run_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    # Привязываемся к порту, который ожидает Render (переменная окружения PORT)
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🌐 Web server для health checks запущен на порту {port}")
+    # Бесконечное ожидание
+    while True:
+        await asyncio.sleep(3600)
+
+def main():
+    # Запускаем веб-сервер для Health Checks
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_web_server())
+
+    # --- ВСЯ ОСТАЛЬНАЯ ЧАСТЬ ВАШЕЙ ФУНКЦИИ main() ---
+    # (Здесь должен быть ваш код с Application.builder(), app.add_handler, и т.д.)
+    # Убедитесь, что код вашей функции main() полностью скопирован сюда.
+    # ... (весь код вашего бота) ...
+
+    print("🤖 Бот запущен и готов к работе!")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == "__main__":
+    main()
