@@ -6,7 +6,7 @@ import time
 import asyncio
 import pytz
 from aiohttp import web
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 
 # ========== КОНФИГУРАЦИЯ ==========
@@ -42,17 +42,95 @@ async def run_web_server():
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"✅ Веб-сервер для health checks запущен на порту {port}")
+    print(f"✅ Веб-сервер запущен на порту {port}")
     while True:
         await asyncio.sleep(3600)
 
-# ========== КОМАНДЫ БОТА ==========
+# ========== КЛАВИАТУРЫ ==========
+def get_client_keyboard():
+    """Клавиатура для клиента"""
+    keyboard = [
+        [KeyboardButton("🗓 Посмотреть свободные слоты")],
+        [KeyboardButton("ℹ️ Как записаться")],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def get_admin_keyboard():
+    """Клавиатура для админа (обычные кнопки)"""
+    keyboard = [
+        [KeyboardButton("➕ Добавить слот"), KeyboardButton("📋 Все слоты")],
+        [KeyboardButton("🚫 Сделать день выходным"), KeyboardButton("✅ Вернуть рабочий день")],
+        [KeyboardButton("🗓 Свободные слоты (клиент)")],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+# ========== КОМАНДЫ И ОБРАБОТЧИКИ ==========
 async def start(update, context):
-    await update.message.reply_text(
-        "📸 Фотограф «В моменте»\nКрасноярск / Новосибирск\n\n"
-        "Напиши /slots_free, чтобы посмотреть свободные слоты.\n\n"
-        "Команды админа:\n/add_slot 2025-05-20 17:00\n/day_off 2025-05-20\n/slots"
-    )
+    user_id = update.effective_user.id
+    if user_id == ADMIN_ID:
+        await update.message.reply_text(
+            "📸 *Фотограф «В моменте»*\nКрасноярск / Новосибирск\n\n"
+            "Добро пожаловать, Админ!\nИспользуй кнопки для управления:",
+            reply_markup=get_admin_keyboard(),
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            "📸 *Фотограф «В моменте»*\nКрасноярск / Новосибирск\n\n"
+            "Нажми на кнопку, чтобы посмотреть свободные слоты:",
+            reply_markup=get_client_keyboard(),
+            parse_mode="Markdown"
+        )
+
+async def handle_client_buttons(update, context):
+    """Обработка кнопок клиента"""
+    text = update.message.text
+    
+    if text == "🗓 Посмотреть свободные слоты":
+        await show_free_slots(update, context)
+    elif text == "ℹ️ Как записаться":
+        await update.message.reply_text(
+            "📝 *Как записаться на съёмку:*\n\n"
+            "1. Нажми «Посмотреть свободные слоты»\n"
+            "2. Выбери удобную дату и время\n"
+            "3. Заполни свои данные\n"
+            "4. Дождись подтверждения от фотографа\n\n"
+            "После подтверждения ты получишь уведомление.",
+            parse_mode="Markdown",
+            reply_markup=get_client_keyboard()
+        )
+    else:
+        await start(update, context)
+
+async def handle_admin_buttons(update, context):
+    """Обработка кнопок админа"""
+    text = update.message.text
+    
+    if text == "➕ Добавить слот":
+        await update.message.reply_text(
+            "📝 *Добавление слота*\n\n"
+            "Введи дату и время в формате:\n`2025-05-20 17:00`\n\n"
+            "Пример: /add_slot 2025-05-20 17:00",
+            parse_mode="Markdown"
+        )
+    elif text == "📋 Все слоты":
+        await show_slots(update, context)
+    elif text == "🚫 Сделать день выходным":
+        await update.message.reply_text(
+            "🚫 *Сделать день выходным*\n\n"
+            "Введи дату в формате:\n`/day_off 2025-05-20`",
+            parse_mode="Markdown"
+        )
+    elif text == "✅ Вернуть рабочий день":
+        await update.message.reply_text(
+            "✅ *Вернуть рабочий день*\n\n"
+            "Введи дату в формате:\n`/day_on 2025-05-20`",
+            parse_mode="Markdown"
+        )
+    elif text == "🗓 Свободные слоты (клиент)":
+        await show_free_slots(update, context)
+    else:
+        await start(update, context)
 
 async def show_free_slots(update, context):
     today = datetime.datetime.now(TZ).date()
@@ -69,15 +147,22 @@ async def show_free_slots(update, context):
                 if date_str not in free_by_day:
                     free_by_day[date_str] = []
                 free_by_day[date_str].append(time_slot)
+    
     if not free_by_day:
         await update.message.reply_text("😞 На ближайшие дни нет свободных слотов.")
         return
+    
     keyboard = []
     for date_str in free_by_day:
         day = datetime.datetime.strptime(date_str, "%Y-%m-%d").day
         month = datetime.datetime.strptime(date_str, "%Y-%m-%d").month
         keyboard.append([InlineKeyboardButton(f"📅 {day}.{month}", callback_data=f"date_{date_str}")])
-    await update.message.reply_text("🗓 *Выбери дату:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    
+    await update.message.reply_text(
+        "🗓 *Выбери дату:*",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 async def date_callback(update, context):
     query = update.callback_query
@@ -88,11 +173,17 @@ async def date_callback(update, context):
     for slot, status in data["slots"].items():
         if slot.startswith(date_str) and status == "free":
             free_times.append(slot.split()[1])
+    
     if not free_times:
         await query.edit_message_text("😞 На эту дату нет свободных слотов.")
         return
+    
     keyboard = [[InlineKeyboardButton(f"🕒 {t}", callback_data=f"time_{date_str}_{t}")] for t in sorted(free_times)]
-    await query.edit_message_text(f"🗓 *{date_str}*\nВыбери время:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await query.edit_message_text(
+        f"🗓 *{date_str}*\nВыбери время:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
     context.user_data['selected_date'] = date_str
 
 async def time_callback(update, context):
@@ -153,6 +244,7 @@ async def agreements_callback(update, context):
     required = ['pd_yes', 'rules_yes']
     if context.user_data['shoot_type'] == "TFP":
         required.append('tfp_yes')
+    
     if all(r in context.user_data['agreements'] for r in required):
         slot = context.user_data['selected_slot']
         data = load_data()
@@ -236,9 +328,9 @@ async def add_slot(update, context):
         data = load_data()
         data["slots"][slot] = "free"
         save_data(data)
-        await update.message.reply_text(f"✅ Слот {slot} добавлен")
+        await update.message.reply_text(f"✅ Слот {slot} добавлен", reply_markup=get_admin_keyboard())
     except:
-        await update.message.reply_text("❌ /add_slot 2025-05-20 17:00")
+        await update.message.reply_text("❌ /add_slot 2025-05-20 17:00", reply_markup=get_admin_keyboard())
 
 async def free_slot(update, context):
     if update.effective_user.id != ADMIN_ID:
@@ -251,9 +343,9 @@ async def free_slot(update, context):
         if slot in data["slots"]:
             data["slots"][slot] = "free"
             save_data(data)
-            await update.message.reply_text(f"✅ Слот {slot} освобождён")
+            await update.message.reply_text(f"✅ Слот {slot} освобождён", reply_markup=get_admin_keyboard())
     except:
-        await update.message.reply_text("❌ /free 2025-05-20 17:00")
+        await update.message.reply_text("❌ /free 2025-05-20 17:00", reply_markup=get_admin_keyboard())
 
 async def day_off(update, context):
     if update.effective_user.id != ADMIN_ID:
@@ -264,9 +356,9 @@ async def day_off(update, context):
         if date not in data["days_off"]:
             data["days_off"].append(date)
             save_data(data)
-            await update.message.reply_text(f"⛔ {date} выходной")
+            await update.message.reply_text(f"⛔ {date} выходной", reply_markup=get_admin_keyboard())
     except:
-        await update.message.reply_text("❌ /day_off 2025-05-20")
+        await update.message.reply_text("❌ /day_off 2025-05-20", reply_markup=get_admin_keyboard())
 
 async def day_on(update, context):
     if update.effective_user.id != ADMIN_ID:
@@ -277,9 +369,9 @@ async def day_on(update, context):
         if date in data["days_off"]:
             data["days_off"].remove(date)
             save_data(data)
-            await update.message.reply_text(f"✅ {date} рабочий")
+            await update.message.reply_text(f"✅ {date} рабочий", reply_markup=get_admin_keyboard())
     except:
-        await update.message.reply_text("❌ /day_on 2025-05-20")
+        await update.message.reply_text("❌ /day_on 2025-05-20", reply_markup=get_admin_keyboard())
 
 async def show_slots(update, context):
     if update.effective_user.id != ADMIN_ID:
@@ -290,25 +382,25 @@ async def show_slots(update, context):
     msg = "📅 *Занятые слоты:*\n" + "\n".join(booked) if booked else "✅ Нет занятых слотов"
     if pending:
         msg += "\n\n⏳ *Ожидают подтверждения:*\n" + "\n".join(pending)
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_admin_keyboard())
 
 # ========== ЗАПУСК ==========
 def main():
-    # Запускаем веб-сервер для Render
     loop = asyncio.get_event_loop()
     loop.create_task(run_web_server())
     
-    # Создаём приложение бота
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Регистрируем обработчики
+    # Обработчики команд
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("slots_free", show_free_slots))
     application.add_handler(CommandHandler("add_slot", add_slot))
     application.add_handler(CommandHandler("free", free_slot))
     application.add_handler(CommandHandler("day_off", day_off))
     application.add_handler(CommandHandler("day_on", day_on))
     application.add_handler(CommandHandler("slots", show_slots))
+    
+    # Обработчики кнопок
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u,c: handle_client_buttons(u,c) if u.effective_user.id != ADMIN_ID else handle_admin_buttons(u,c)))
     application.add_handler(CallbackQueryHandler(date_callback, pattern="^date_"))
     application.add_handler(CallbackQueryHandler(admin_callback, pattern="^(confirm_|decline_)"))
     
@@ -323,11 +415,11 @@ def main():
             "GET_SHOOT_TYPE": [CallbackQueryHandler(shoot_type_callback)],
             "GET_AGREEMENTS": [CallbackQueryHandler(agreements_callback)],
         },
-        fallbacks=[CommandHandler("cancel", lambda u, c: u.message.reply_text("❌ Отмена"))],
+        fallbacks=[CommandHandler("cancel", lambda u,c: u.message.reply_text("❌ Отмена"))],
     )
     application.add_handler(conv)
     
-    print("🤖 Бот запущен и готов к работе!")
+    print("🤖 Бот запущен с кнопками!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
